@@ -177,7 +177,7 @@ else
     version=$(cat $OUTDIR/zversion.txt)
     mupip_dumpfhead_added_in="GT.M V6.3-001A"
     if [ "$version" \< "$mupip_dumpfhead_added_in" ]; then
-      run ${dist_dir}/dse all -d > $OUTDIR/dse_all_d.txt 2>&1
+      run ${dist_dir}/dse all -dump -all > $OUTDIR/dse_all_dump_all.txt 2>&1
     else
       run ${dist_dir}/mupip dumpfhead -reg '*' > $OUTDIR/mupip_dumpfhead.txt 2>&1
     fi
