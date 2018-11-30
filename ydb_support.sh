@@ -21,6 +21,7 @@ run() {
   prog=$1
   shift
   prog_exists=$(command -v ${prog})
+  echo "Command: $prog_exists $@"
   if [ "${prog_exists}" != "" ]; then
     $prog_exists "$@"
   else
@@ -42,7 +43,6 @@ where:
   -h|--help displays this message
   -l|--logs-since <time spec> passed to journalctl (if present) to control starting time of logs
       DEFAULT: 2 hours ago
-  -s|--file-system-info also gather information about the file system; useful in some cases, but not always
 EOF
 exit 1
 }
@@ -51,9 +51,8 @@ LOGS_SINCE="2 hours ago"
 OUTDIR="ydb_support"
 FORCE=0
 PID=""
-GET_FS_INFO=0
 
-OPTS=$(getopt -o fo:p:hl:s --long force,outdir,pid,help,logs-since,file-system-info -n 'parse-options' -- "$@")
+OPTS=$(getopt -o fo:p:hl: --long force,outdir,pid,help,logs-since -n 'parse-options' -- "$@")
 
 eval set -- "$OPTS"
 
@@ -75,10 +74,6 @@ while true; do
     -p | --pid)
       PID="${2}"
       shift
-      shift
-      ;;
-    -s | --file-system-info)
-      GET_FS_INFO=1
       shift
       ;;
     --)
@@ -108,7 +103,7 @@ echo "## Gathering system information"
 
 run uname -a > $OUTDIR/uname.txt 2>&1
 run lsb_release -a > $OUTDIR/lsb_release.txt 2>&1
-run cp /etc/os-release $OUTDIR/os-release
+run cat /etc/os-release > $OUTDIR/os-release 2>&1
 
 echo "## Gathering system logs"
 
@@ -174,6 +169,7 @@ else
     echo "## Warning: neither ydb_gbldir nor gbldir environment variables are set, so we can not get database information"
   else
     run echo "${gbldir}" > $OUTDIR/global_dir.txt
+    run $dist_dir/mumps -run GDE show -command > $OUTDIR/gde_show_command.txt 2>&1
     version=$(cat $OUTDIR/zversion.txt)
     mupip_dumpfhead_added_in="GT.M V6.3-001A"
     if [ "$version" \< "$mupip_dumpfhead_added_in" ]; then
@@ -184,11 +180,10 @@ else
   fi
 fi
 
-if [ "$GET_FS_INFO" != "" ]; then
-  echo "## Getting filesystem information"
-  run df > $OUTDIR/df.txt 2>&1
-  run fdisk -l > $OUTDIR/fdisk.txt 2>&1
-fi
+echo "## Getting filesystem information"
+run df > $OUTDIR/df.txt 2>&1
+run fdisk -l > $OUTDIR/fdisk.txt 2>&1
+run grep ^/dev /etc/mtab > $OUTDIR/mtab.txt 2>&1
 
 echo "## Done getting information, packing tarball"
 
