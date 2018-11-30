@@ -17,23 +17,10 @@
 
 ## For usage instructions, run with the --help flag
 
-run() {
-  prog=$1
-  shift
-  prog_exists=$(command -v ${prog})
-  echo "Command: $prog_exists $@"
-  if [ "${prog_exists}" != "" ]; then
-    $prog_exists "$@"
-  else
-    echo "Warning: command ${prog} not found"
-  fi
-}
-
 usage() {
   cat <<EOF
 $(basename "$0") [-f|--force] [-o|--outdir OUTPUT DIRECTORY] \
-[-p|--pid PID OR CORE FILE] [-h|--help] [-l|--logs-since JOURNALCTL TIME FORMAT] \
-[-s|--file-system-info]
+[-p|--pid PID OR CORE FILE] [-h|--help] [-l|--logs-since JOURNALCTL TIME FORMAT]
 
 where:
   -f|--force removes the output directory if it exists before starting, else an error will be emitted
@@ -46,6 +33,19 @@ where:
 EOF
 exit 1
 }
+
+run() {
+  prog=$1
+  shift
+  prog_exists=$(command -v ${prog})
+  echo "Command: $prog_exists $@"
+  if [ "${prog_exists}" != "" ]; then
+    $prog_exists "$@"
+  else
+    echo "Warning: command ${prog} not found"
+  fi
+}
+
 
 LOGS_SINCE="2 hours ago"
 OUTDIR="ydb_support"
