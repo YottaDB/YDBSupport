@@ -21,7 +21,7 @@
 ##?   [-l|--logs-since "JOURNALCTL TIME FORMAT"]
 ##?   [-u|--logs-until "JOURNALCTL TIME FORMAT"]
 ##?   [-n|--no-logs]
-##? 
+##?
 ##? where:
 ##?   -f|--force removes the output directory if it exists before starting, else an error will be emitted
 ##?   -o|--outdir <directory> the output directory to store files in before compressing
@@ -122,44 +122,44 @@ mkdir -p "${OUTDIR}" || exit 1
 
 if [ "${NO_LOGS}" -eq "0" ]; then
   echo "## Gathering system information"
-  
+
   run uname -a > $OUTDIR/uname.txt 2>&1
   run lsb_release -a > $OUTDIR/lsb_release.txt 2>&1
   run cat /etc/os-release > $OUTDIR/os-release 2>&1
-  
+
   echo "## Gathering system logs"
-  
+
   journalctl=$(command -v journalctl)
-  
+
   if [ "$journalctl" != "" ]; then
     run journalctl --since "${LOGS_SINCE}" --until "${LOGS_UNTIL}" > $OUTDIR/journalctl.log
   else
     # Limited support for this case; just grab the latest files from /var/log
     run cp /var/log/syslog $OUTDIR/
   fi
-  
+
   run dmesg > $OUTDIR/dmesg.log 2>&1
-  
-  
+
+
   dist_dir="$ydb_dist"
-  
+
   if [ "$dist_dir" = "" ]; then
     dist_dir="$gtm_dist"
   fi
-  
+
   if [ "$dist_dir" = "" ]; then
     echo "## Warning: neither ydb_dist nor gtm_dist environment variables are set, so we can not get database information"
   else
     echo "## Gathering information about database"
-  
+
     run $dist_dir/mumps -r %XCMD 'write $ZVERSION' > $OUTDIR/zversion.txt 2>&1
-  
+
     gbldir="$ydb_gbldir"
-  
+
     if [ "${gbldir}" = "" ]; then
       gbldir="$gtmgbldir"
     fi
-  
+
     if [ "${gbldir}" = "" ]; then
       echo "## Warning: neither ydb_gbldir nor gbldir environment variables are set, so we can not get database information"
     else
@@ -174,12 +174,12 @@ if [ "${NO_LOGS}" -eq "0" ]; then
       fi
     fi
   fi
-  
+
   echo "## Getting filesystem information"
   run df > $OUTDIR/df.txt 2>&1
   run fdisk -l > $OUTDIR/fdisk.txt 2>&1
   run grep ^/dev /etc/mtab > $OUTDIR/mtab.txt 2>&1
-  
+
 fi
 
 if [ "${PID}" != "" ]; then
@@ -195,10 +195,11 @@ if [ "${PID}" != "" ]; then
   fi
   if [ -f "${pid_exec}" ]; then
     out_fn="$OUTDIR/gdb_$(basename $PID).txt"
-    run gdb "${pid_exec}" "${PID}" -ex "backtrace" -ex "quit" > $out_fn 2>&1
+    run gdb "${pid_exec}" "${PID}" -ex "set print elements 0" -ex "set print repeats 0" -ex "backtrace" -ex "quit" > $out_fn 2>&1
     # For each from in the core, print locals (max at 20 frames)
     frame_count=$(grep -c -e "^#[0-9]\\+" $out_fn)
-    gdb_arg=""
+    gdb_arg="-ex \"set print elements 0\""	# display entire string instead of truncating it at 200 bytes by default
+    gdb_arg="$gdb_arg -ex \"set print repeats 0\""	# display entire string instead of printing <repeated 20 times> etc.
     # Minus 2 to account for the 0 offset expr counting to n, inclusive
     for i in $(seq 0 $(expr $frame_count - 2)); do
       gdb_arg="$gdb_arg -ex \"frame $i\" -ex \"info locals\" -ex \"info registers\""
