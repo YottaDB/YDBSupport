@@ -195,12 +195,17 @@ if [ "${PID}" != "" ]; then
   fi
   if [ -f "${pid_exec}" ]; then
     out_fn="$OUTDIR/gdb_$(basename $PID).txt"
-    run gdb "${pid_exec}" "${PID}" -ex "set print elements 0" -ex "set print repeats 0" -ex "backtrace" -ex "quit" > $out_fn 2>&1
+    run gdb "${pid_exec}" "${PID}" -ex "set print elements 8192" -ex "set print repeats 8192" -ex "backtrace" -ex "quit" > $out_fn 2>&1
     # For each from in the core, print locals (max at 20 frames)
     # This count is one higher than the actual due to gdb formating
     frame_count=$(grep -c -e "^#[0-9]\\+" $out_fn)
-    gdb_arg="-ex \"set print elements 0\""	# display entire string instead of truncating it at 200 bytes by default
-    gdb_arg="$gdb_arg -ex \"set print repeats 0\""	# display entire string instead of printing <repeated 20 times> etc.
+    gdb_arg="-ex \"set print elements 8192\""		# display upto 8192 bytes of a string (default is to truncate a large
+    							# string to just 200 bytes) as we might need to see the entire string
+							# for example in case it is an Octo SQL query.
+    gdb_arg="$gdb_arg -ex \"set print repeats 8192\""	# print every repeating consecutive byte of string upto a max of 8192
+    							# instead of the default 10; this helps see the entire string in a
+							# copy-pasteable manner instead of seeing a broken sequence of the actual
+							# string followed by say a "<repeated 20 times>" string in between.
     # Minus 2 to account for the 0 offset expr counting to n, inclusive
     # If frame count is less than 100 just print all of them in order
     if [ 100 -gt $frame_count ]; then
