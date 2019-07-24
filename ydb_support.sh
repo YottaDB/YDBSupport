@@ -197,13 +197,26 @@ if [ "${PID}" != "" ]; then
     out_fn="$OUTDIR/gdb_$(basename $PID).txt"
     run gdb "${pid_exec}" "${PID}" -ex "set print elements 0" -ex "set print repeats 0" -ex "backtrace" -ex "quit" > $out_fn 2>&1
     # For each from in the core, print locals (max at 20 frames)
+    # This count is one higher than the actual due to gdb formating
     frame_count=$(grep -c -e "^#[0-9]\\+" $out_fn)
     gdb_arg="-ex \"set print elements 0\""	# display entire string instead of truncating it at 200 bytes by default
     gdb_arg="$gdb_arg -ex \"set print repeats 0\""	# display entire string instead of printing <repeated 20 times> etc.
     # Minus 2 to account for the 0 offset expr counting to n, inclusive
-    for i in $(seq 0 $(expr $frame_count - 2)); do
-      gdb_arg="$gdb_arg -ex \"frame $i\" -ex \"info locals\" -ex \"info registers\""
-    done
+    # If frame count is less than 100 just print all of them in order
+    if [ 100 -gt $frame_count ]; then
+      for i in $(seq 0 $(expr $frame_count - 2)); do
+        gdb_arg="$gdb_arg -ex \"frame $i\" -ex \"info locals\" -ex \"info registers\""
+      done
+    else
+      # Bottom 50 frames
+      for i in $(seq 0 49); do
+        gdb_arg="$gdb_arg -ex \"frame $i\" -ex \"info locals\" -ex \"info registers\""
+      done
+      # Top 50 frames
+      for i in $(seq $(expr $frame_count - 50) $(expr $frame_count - 2)); do
+        gdb_arg="$gdb_arg -ex \"frame $i\" -ex \"info locals\" -ex \"info registers\""
+      done
+    fi
     gdb_arg="$gdb_arg -ex \"quit\""
     run echo $gdb_arg | run xargs -- gdb "${pid_exec}" "${PID}" >> $out_fn 2>&1
   else
