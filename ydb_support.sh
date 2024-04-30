@@ -1,7 +1,7 @@
 #!/bin/sh
 # ydb_support.sh - gathers information related to the system, database, and core files if applicable
 
-# Copyright (C) 2018-2019 YottaDB, LLC
+# Copyright (C) 2018-2024 YottaDB, LLC
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU Affero General Public License as
 # published by the Free Software Foundation, either version 3 of the
@@ -17,11 +17,12 @@
 
 ##? Usage:
 ##? ./ydb_support.sh [-f|--force] [-o|--outdir OUTPUT DIRECTORY]
+##? sudo -E ./ydb_support.sh [-f|--force] [-o|--outdir OUTPUT DIRECTORY]
 ##?   [-p|--pid "PID OR CORE FILE"] [-h|--help]
 ##?   [-l|--logs-since "JOURNALCTL TIME FORMAT"]
 ##?   [-u|--logs-until "JOURNALCTL TIME FORMAT"]
 ##?   [-n|--no-logs]
-##?
+##? 
 ##? where:
 ##?   -f|--force removes the output directory if it exists before starting, else an error will be emitted
 ##?   -o|--outdir <directory> the output directory to store files in before compressing
@@ -33,6 +34,9 @@
 ##?   -u|--logs-until <time spec> passed to journalctl (if present) to control topping time of logs
 ##?       DEFAULT: now
 ##?   -n|--no-logs if present, no information from the system beyond what is required for processing -p is collected
+##? 
+##? Running as root with sudo also captures dmesg output; running as a normal user does not. When
+##? running with sudo, the -E option is important to capture environment variables.
 
 usage() {
   grep "##?" "$0" | grep -v grep | cut -d\  -f 2-
@@ -51,6 +55,12 @@ run() {
   fi
 }
 
+run_if_root() {
+  if [ 0 -eq $(id -u) ] ; then
+    run "$@"
+  else echo "Command $1 requires root; id is" $(id -un)
+  fi
+}
 
 LOGS_SINCE="2 hours ago"
 LOGS_UNTIL="now"
@@ -114,6 +124,7 @@ if [ -e "${OUTDIR}" ]; then
     rm -rf "${OUTDIR}"
   else
     echo "Specified output directory ${OUTDIR} already exists; please stash it somewhere" 1>&2
+    echo "or use the -f / --force option to replace it." 1>&2
     exit 1
   fi
 fi
@@ -126,6 +137,13 @@ if [ "${NO_LOGS}" -eq "0" ]; then
   run uname -a > $OUTDIR/uname.txt 2>&1
   run lsb_release -a > $OUTDIR/lsb_release.txt 2>&1
   run cat /etc/os-release > $OUTDIR/os-release 2>&1
+  run lscpu > $OUTDIR/lscpu.txt 2>&1
+  run lsmem > $OUTDIR/lsmem.txt 2>&1
+  run lsblk > $OUTDIR/lsblk.txt 2>&1
+
+  echo "## Gathering environment variables, omitting keys, passphrases, and passwords"
+  echo "Command: env | grep -Eiv \(key\)\|\(passp\)\|\(passw\) | sort" > $OUTDIR/env.txt 2>&1
+  env | grep -Eiv \(key\)\|\(passp\)\|\(passw\) | sort >> $OUTDIR/env.txt 2>&1
 
   echo "## Gathering system logs"
 
@@ -138,21 +156,39 @@ if [ "${NO_LOGS}" -eq "0" ]; then
     run cp /var/log/syslog $OUTDIR/
   fi
 
-  run dmesg > $OUTDIR/dmesg.log 2>&1
+  run_if_root dmesg > $OUTDIR/dmesg.log 2>&1
 
-
-  dist_dir="$ydb_dist"
-
-  if [ "$dist_dir" = "" ]; then
-    dist_dir="$gtm_dist"
+  if [ ! -z "$ydb_dist" ] ; then dist_dir=$ydb_dist
+  elif [ ! -z "$gtm_dist" ] ; then dist_dir=$gtm_dist
+  else
+    script_dir=$(realpath $(dirname $0))
+    if [ -x $script_dir/mumps ] ; then dist_dir=$script_dir
+    elif [ -x $script_dir/../mumps ] ; then dist_dir=$script_dir/..
+    else
+      if [ -f /usr/share/pkgconfig/yottadb.pc ] ; then
+	dist_dir=$(grep ^prefix= /usr/share/pkgconfig/yottadb.pc | cut -d = -f 2)
+	if [ ! -d "$dist_dir" ] ; then
+	  echo "## Warning: /usr/share/pkgconfig/yottadb.pc says YottaDB/GT.M is installed at $dist_dir"
+	  echo "## but such a directory does not exist."
+	  unset dist_dir
+	fi
+      fi
+    fi
   fi
 
   if [ "$dist_dir" = "" ]; then
-    echo "## Warning: neither ydb_dist nor gtm_dist environment variables are set, so we can not get database information"
+    echo "## Warning: Could not locate a YottaDB or GT.M distribution"
   else
-    echo "## Gathering information about database"
+    dist_dir=$(realpath $dist_dir)
+    echo "## YottaDB/GT.M distribution is at $dist_dir"
+    echo "## Gathering information about the database"
 
-    run $dist_dir/mumps -r %XCMD 'write $ZVERSION' > $OUTDIR/zversion.txt 2>&1
+    if [ -e $dist_dir/yottadb ] ; then pgm=yottadb
+    else pgm=mumps
+    fi
+
+    run $dist_dir/$pgm -r %XCMD 'write $ZVERSION,!' > $OUTDIR/zversion.txt 2>&1
+    if [ "yottadb" = $pgm ] ; then run $dist_dir/$pgm -r %XCMD 'write $zyrelease,!' >$OUTDIR/zyrelease.txt 2>&1 ; fi
 
     gbldir="$ydb_gbldir"
 
@@ -161,24 +197,24 @@ if [ "${NO_LOGS}" -eq "0" ]; then
     fi
 
     if [ "${gbldir}" = "" ]; then
-      echo "## Warning: neither ydb_gbldir nor gbldir environment variables are set, so we can not get database information"
+      echo "## Warning: neither ydb_gbldir nor gtmgbldir environment variables are set, so no database is available"
     else
       run echo "${gbldir}" > $OUTDIR/global_dir.txt
-      run $dist_dir/mumps -run GDE show -command > $OUTDIR/gde_show_command.txt 2>&1
-      version=$(cat $OUTDIR/zversion.txt)
-      mupip_dumpfhead_added_in="GT.M V6.3-001A"
-      if [ "$version" \< "$mupip_dumpfhead_added_in" ]; then
-        run ${dist_dir}/dse all -dump -all > $OUTDIR/dse_all_dump_all.txt 2>&1
-      else
+      run $dist_dir/$pgm -run GDE show -command > $OUTDIR/gde_show_command.txt 2>&1
+      # Get DSE output even if MUPIP DUMPHEAD is available, as it is easier to read
+      run ${dist_dir}/dse all -dump -all > $OUTDIR/dse_all_dump_all.txt 2>&1
+      version=$(tail -1 $OUTDIR/zversion.txt)
+      mupip_dumpfhead_added_after="GT.M V6.3-001A"
+      if [ "$version" \> "$mupip_dumpfhead_added_after" ]; then
         run ${dist_dir}/mupip dumpfhead -reg '*' > $OUTDIR/mupip_dumpfhead.txt 2>&1
       fi
     fi
   fi
 
   echo "## Getting filesystem information"
-  run df > $OUTDIR/df.txt 2>&1
-  run fdisk -l > $OUTDIR/fdisk.txt 2>&1
-  run grep ^/dev /etc/mtab > $OUTDIR/mtab.txt 2>&1
+  echo "Command: df | grep ^/dev/[^l]" > $OUTDIR/df.txt 2>&1
+  df | grep ^/dev/[^l] >> $OUTDIR/df.txt 2>&1
+  run grep ^/dev/[^l] /etc/mtab > $OUTDIR/mtab.txt 2>&1
 
 fi
 
@@ -191,11 +227,11 @@ if [ "${PID}" != "" ]; then
     pid_exec=$(echo $pid_exec | sed "s/'//g")
   else
     echo "## Analyzing active process"
-    pid_exec=$(readlink -f /proc/${PID}/exe)
+    pid_exec=$(realpath /proc/${PID}/exe)
   fi
   if [ -f "${pid_exec}" ]; then
     out_fn="$OUTDIR/gdb_$(basename $PID).txt"
-    run gdb "${pid_exec}" "${PID}" -ex "set print elements 8192" -ex "set print repeats 8192" -ex "backtrace" -ex "quit" > $out_fn 2>&1
+    run gdb "${pid_exec}" "${PID}" -ex "set confirm off" -ex "set print elements 8192" -ex "set print repeats 8192" -ex "backtrace" -ex "quit" > $out_fn 2>&1
     # For each from in the core, print locals (max at 20 frames)
     # This count is one higher than the actual due to gdb formating
     frame_count=$(grep -c -e "^#[0-9]\\+" $out_fn)
@@ -233,4 +269,9 @@ echo "## Done getting information, packing tarball"
 
 tar -czf ${OUTDIR}.tar.gz ${OUTDIR}
 
-echo "## Done! Please send ${OUTDIR}.tar.gz and a description of your problem to your YottaDB support channel; make sure to include a description of the problem, severity, scope, and timeframes"
+echo "## Done! Please review the files in ${OUTDIR} to make sure that they only contain metadata"
+echo "## that can be sent. If not, please edit them as needed, and run the command"
+echo "##   tar -czf ${OUTDIR}.tar.gz ${OUTDIR}"
+echo "## to recreate ${OUTDIR}.tar.gz. Send ${OUTDIR}.tar.gz and a description of your problem to your"
+echo "## YottaDB support channel, as well as the severity (impact), scope, and timeframes. You can"
+echo "## remove the directory ${OUTDIR} afterwards. Thank you."
