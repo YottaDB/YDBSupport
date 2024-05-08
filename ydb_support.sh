@@ -49,7 +49,7 @@ run() {
   prog_exists=$(command -v ${prog})
   echo "Command: $prog_exists $@"
   if [ "${prog_exists}" != "" ]; then
-    $prog_exists "$@"
+    unset DEBUGINFOD_URLS ; $prog_exists "$@"
   else
     echo "Warning: command ${prog} not found"
   fi
