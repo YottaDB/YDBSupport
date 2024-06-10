@@ -69,7 +69,7 @@ FORCE=0
 PID=""
 NO_LOGS=0
 
-OPTS=$(getopt -o fo:p:hl:u:n --long force,outdir,pid,help,logs-since,logs-until,no-logs -n 'parse-options' -- "$@")
+OPTS=$(getopt -o fo:p:hl:u:n --long force,outdir:,pid:,help,logs-since:,logs-until:,no-logs -n 'parse-options' -- "$@")
 
 eval set -- "$OPTS"
 
@@ -81,13 +81,11 @@ while true; do
       ;;
     -l | --logs-since)
       LOGS_SINCE="${2}"
-      shift
-      shift
+      shift 2
       ;;
     -u | --logs-until)
       LOGS_UNTIL="${2}"
-      shift
-      shift
+      shift 2
       ;;
     -h | --help)
       usage
@@ -95,13 +93,11 @@ while true; do
       ;;
     -o | --outdir)
       OUTDIR="${2}"
-      shift
-      shift
+      shift 2
       ;;
     -p | --pid)
       PID="${2}"
-      shift
-      shift
+      shift 2
       ;;
     -n | --no-logs)
       NO_LOGS=1
